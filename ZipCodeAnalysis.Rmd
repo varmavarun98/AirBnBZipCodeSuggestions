@@ -1,0 +1,423 @@
+---
+title: <center> Two Bedroom Properties in New York Analysis <center> 
+author: <center> Varun Varma <center> 
+output: 
+  html_document :
+    code_folding : show
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+# {.tabset .tabset-fade .tabset-pills}
+
+## 1. Synopsis
+![](new_york.jpg)
+
+You are consulting for a real estate company that has a niche in purchasing properties to rent out short-term as part of their business model specifically within New York City.  The real estate company has already concluded that two-bedroom properties are the most profitable; however, they do not know which zip codes are the best to invest in.    
+
+The real estate company has engaged your firm to build out a data product and provide your conclusions to help them understand which zip codes would generate the most profit on short term rentals within New York City.
+
+
+## 2. Packages Required
+
+The following packages has been used for the analysis:
+```{r Loading the required packages, warning=FALSE, message=FALSE}
+library(tidyr)
+library(DT)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+```
+
+
+**tidyr**     : For changing the layout of the data sets, to convert data into the tidy format.
+
+**DT**        : For HTML display of data.
+
+**ggplot2**   : For customizable graphical representation.
+
+**dplyr**     : For data manipulation.
+
+**tidyverse** : Collection of R packages designed for data science that works harmoniously with other packages.
+
+
+
+## 3. Assumptions
+
+* The investor will pay for the property in cash (i.e. no mortgage/interest rate will need to be accounted for).
+
+* The time value of money discount rate is 0% (i.e. $1 today is worth the same 100 years from now).
+
+* All properties and all square feet within each locale can be assumed to be homogeneous (i.e. a 1000 square foot property in a locale such as Bronx or Manhattan generates twice the revenue and costs twice as much as any other 500 square foot property within that same locale.)
+
+* Occupancy rate of 75% throughout the year for Airbnb properties.
+
+* The company will put properties on rent every day throughout the year.
+
+* The company is interested in making profit via renting only not via selling.
+
+
+
+## 4. Data Prepration {.tabset .tabset-fade .tabset-pills}
+
+### a. Data Source
+
+The publicly available data used for the analysis come from Zillow and Airbnb.
+
+**Zillow dataset:** This dataset provides the cost for 2 bedroom properties in each zipcode for various cities. The cost information is available from April 1996 to June 2017.
+
+**Airbnb dataset:** This dataset provides revenue data generated from properties. Information about property listings in New York including location, number of bedrooms, reviews, price, availability, property description, etc. 
+
+### b. Data Cleaning Process {.tabset .tabset-fade .tabset-pills}
+
+####  Airbnb Dataset - Analysis
+
+```{r Reading the air bnb file, warning=FALSE, message=FALSE}
+air_bnb <- read.csv("listings.csv")
+```
+
+**After reading the file, we check the dimension and column names of the file.**
+
+```{r Dimension and Column Names of air_bnb file, warning=FALSE, message=FALSE}
+
+dim(air_bnb)
+colnames(air_bnb)
+```
+
+
+**We see that air_bnb dataset has 48895 rows and 106 columns and the colnames() gives us the names of all the columns. Many of these columns do not seem important for our analysis hence we will filter them out to keep the important columns only. Also, we will filter out the data where the number of bedroom is 2 as the business question specify 2 bedroom property only where the investor wants to invest. We also use distinct() to remove any duplicated observations.**
+
+```{r Filtering the relevent columns of air_bnb file, warning=FALSE, message=FALSE}
+
+  relevant_cols <- c("zipcode","bedrooms","price","weekly_price","monthly_price","cleaning_fee","neighbourhood_group_cleansed","number_of_reviews","review_scores_rating")
+  air_bnb_filter <- air_bnb[,relevant_cols] %>% filter(bedrooms==2) %>% distinct()
+ # Select relevant columns and filter bedroom equal to 2 and keep only unique observations
+```
+
+**Once we check the summary statistics of the remaining columns of air_bnb_filter, we can make a better decision to determine whether to remove more columns or not from further analysis. We also check the percentage of missing values in each column.**
+
+```{r Structure and summary statistics of air_bnb_filter file, warning=FALSE, message=FALSE}
+
+str(air_bnb_filter)
+summary(air_bnb_filter)
+colSums(is.na(air_bnb_filter))/nrow(air_bnb_filter)*100
+```
+
+**From the above results, we observe the following:**
+
+* **We see that zipcode and neighbourhood_group_cleansed are categorical variables, which are desired**
+* **Number of bedroom is 2, hence we can remove this column as it doesn't provide any further information**
+* **We see that price, weekly_price, monthly_price, cleaning_fee are categorical variables having a $ sign in front of them, which are not desired.**
+* **review_scores_rating has a high percentage of missing values, hence we can remove this column.**
+
+```{r Remove $ sign from price columns of air bnb dataset, warning=FALSE, message=FALSE}
+cols <- c("price", "weekly_price", "monthly_price","cleaning_fee") 
+# selecting columns to remove $ sign
+
+replace_dollar <- function(x){
+  price <- as.numeric(gsub("[$,]","",x)) 
+  return(price)
+}
+
+air_bnb_filter[cols] <- lapply(air_bnb_filter[cols], replace_dollar) 
+# Running the above defined function on columns to replace $ with whitespace
+
+# Again check the structure of the data
+str(air_bnb_filter)
+dim(air_bnb_filter)
+summary(air_bnb_filter)
+colSums(is.na(air_bnb_filter))/nrow(air_bnb_filter)*100
+```
+**From the above, we see that the weekly_price and monthly_price have a high percentage of missing values (around 88% and 89% respectively) hence we can remove them from further analysis. cleaning_fee has a small percentage of missing value that can be imputed with the existing values. We will take care of that after we merge the dataset**
+
+**We will change the column names of price and neighbourhood_group_cleansed to daily_price and neighbourhood respectively for easy understanding.**
+
+```{r Final air_bnb data ready to merge, warning=FALSE, message=FALSE}
+
+air_bnb_filter <- air_bnb_filter %>% select(-c(bedrooms, weekly_price, review_scores_rating,monthly_price))%>% rename(daily_price= price, neighbourhood=neighbourhood_group_cleansed)
+head(air_bnb_filter)
+```
+
+#### Zillow Dataset - Analysis 
+
+```{r Reading zillow file, warning=FALSE, message=FALSE}
+
+zillow <- read.csv("Zip_Zhvi_2bedroom.csv")
+```
+
+**After reading the file, we check the dimension and column names of the file.**
+
+```{r Dimension and Column Names of zillow file, warning=FALSE, message=FALSE}
+
+dim(zillow)
+colnames(zillow)
+```
+
+**We see that the Zillow file contains 8946 rows and 262 columns. Apart from the first 7 columns, the rest of the columns consists of the price of the property per month from April 1996 to June 2017. We will select relevant columns such as Region Name (zipcode), the city, and the cost of the property only from the last 5 years. Since we need the information about New York City, we will filter the relevant data.**
+
+**Assuming that there is seasonality in the price and also that values depend not only on previous values (Auto Regressive AR) but also on differences between previous values (Moving Average MA), we apply ARIMA model to predict the cost of the properties in Zipcodes from July 2017 to Jan 2020 with the help of 5 years of cost data.**
+
+**Also we will replace the column name RegionName to zipcode so that we can merge with the Zillow dataset with the air_bnb dataset.**
+
+```{r Forcasting the cuurent price, warning=FALSE, message=FALSE}
+
+  # Select zillow cost information from last 5 years and modify zillow data to only hold relevant columns, filter new york city and change the region name to zipcode
+zillow_filter <- zillow[,c(2,3,(ncol(zillow)-59):ncol(zillow))] %>% filter(str_detect(City, "New York") == TRUE) %>% rename(zipcode = RegionName)
+
+zillow_filter$current_property_value <- NA 
+# Create a new column to store the latest price in January 2020
+  
+# we define a for loop to iterate over each zipcode to obtain latest cost of property
+dim(zillow_filter)
+ for(i in 1:nrow(zillow_filter)){
+
+    temp = ts(as.vector(t(zillow_filter[,c(3:62)])[,i]),start = c(2012,6),frequency = 12) 
+    # Convert the monthly cost data into time series data 
+  
+    ARIMA_fit = arima(temp, order=c(1,1,1), seasonal=list(order=c(1,0,1),period=NA), method="ML")
+    # Define ARIMA model to be used for prediction
+    
+    prediction = predict(ARIMA_fit, n.ahead = 30)
+    # use the ARIMA model to predict the price from July 2017 to Jan 2020
+    
+    pred_value <- prediction$pred 
+    # Store the predicted values in a variable 
+    
+    zillow_filter$current_property_value [i] <- pred_value[length(pred_value)] 
+    # set the value of current price for the specific zipcode as price in Jan 2020
+  }
+  dim(zillow_filter)
+  zillow_filter <- zillow_filter[,c(1,2,63)] # return the filtered data containing only relevant columns
+  head(zillow_filter)
+  dim(zillow_filter)
+```
+
+####  Merge Dataset - Analysis
+
+**Now both the datasets are ready to be merged.**
+
+```{r Merge Dataset, warning=FALSE, message=FALSE}
+
+housing_data <- merge(air_bnb_filter,zillow_filter,by = c("zipcode")) # merge data sets on zipcode
+dim(housing_data)
+head(housing_data)
+str(housing_data)
+summary(housing_data)
+```
+
+**Now we notice some maximum price in the price column as 4000 which seems like an outlier as the cleaning fee for that is just 40. Hence we will remove that. Also, we will remove observations(if any) where cleaning fees greater than price indicating some wrong entry of data. Since cleaning_fee contains NA value which is around 13% of the data, we cannot delete that but will impute with the median.**
+
+```{r Removing outliers}
+
+house_data <- housing_data %>% filter(daily_price!=4000)  %>% filter(cleaning_fee< daily_price) 
+house_data$City <- factor(house_data$City, levels=c("New York"))
+house_data$cleaning_fee[is.na(house_data$cleaning_fee)] <- median(house_data$cleaning_fee, na.rm=TRUE)
+
+str(house_data)
+summary(house_data)
+length(unique(house_data$zipcode))
+```
+**From the above, we can see *24* unique zipcodes. Now the data is ready for analysis without having any NA values**     
+ 
+
+### c. Cleaned Data{.tabset .tabset-fade .tabset-pills}
+
+The cleaned data can be found below:
+
+```{r Displaying the cleaned merged dataset, warning=FALSE, message=FALSE}
+
+datatable(house_data, filter = 'top')          
+```
+ 
+## 5. Exploratory Data Analysis{.tabset .tabset-fade .tabset-pills}
+
+**The analysis have been perfomed based on different criteria. They are as follow:**
+
+### a. Based on Neighbourhood
+
+```{r Based on neighbourhood, warning=FALSE, message=FALSE}
+
+house_data %>% group_by(neighbourhood) %>% 
+  count(neighbourhood) %>% 
+  ggplot(aes(x=neighbourhood, y=n)) + 
+  geom_col(fill= 'maroon') + geom_text(aes(label = n), size = 3, hjust=0.3, vjust=-0.5) +
+  ggtitle("Number of properties across neighbourhoods")+
+  xlab("Neighbourhood")+ 
+  ylab("Count of Properties") 
+```
+
+From the above graph, we can see that Manhattan has the maximum number of properties listed in the area, followed by Brooklyn. This gives us the idea that these two places can be considered to buy properties based on the count.
+
+
+### b. Based on Count of Properties in each Zipcode
+
+```{r Based on count of properties, warning=FALSE, message=FALSE}
+
+house_data %>% 
+  group_by(zipcode, neighbourhood) %>% 
+  count(zipcode) %>% 
+  arrange(-n) %>% 
+  head(10)%>%
+  ggplot(aes( x = reorder(zipcode,-n), y =n, fill= neighbourhood)) + 
+  geom_bar(stat ="identity") + 
+  scale_fill_manual(values=c("#FC766AFF", "#5B84B1FF"))+
+  geom_text(aes(label = n), size = 3, hjust=0.3, vjust=-0.5) +
+  ggtitle("Number of Properties in Each Zipcode")+ 
+  xlab("Zipcodes") + 
+  ylab("Count of Property") + 
+  guides(fill=guide_legend(" "))
+```
+
+From the above plot, we can see that zipcode 11215 seems to be a popular choice based on the count of properties as that zipcode contains 158 properties followed by zipcode 10036, 10003, 11217 and 10013. Out of the top 5 zipcodes based on this criteria, 2 are in Brooklyn while 3 are in Manhattan.
+
+### c. Based on Number of Reviews
+
+```{r Based on average number of reviews, warning=FALSE, message=FALSE}
+
+house_data %>% group_by(zipcode, neighbourhood) %>% 
+  summarize(average_review= round(mean(number_of_reviews),0)) %>% 
+  arrange(-average_review) %>%
+  head(10) %>%
+  ggplot(aes( x = reorder(zipcode,- average_review), y =average_review, fill = neighbourhood)) + 
+  geom_bar(stat ="identity") + 
+  scale_fill_manual(values=c("#FC766AFF", "#5B84B1FF",  "#4B878BFF", "#DAA03DFF"))+
+  geom_text(aes(label = average_review), size = 3, hjust=0.3, vjust=-0.5) +
+  ggtitle("Average Number of Review of Property in Each Zipcode")+
+  xlab("Zipcodes") + 
+  ylab("Total Number of Reviews")+
+  guides(fill=guide_legend(" "))
+
+
+```
+
+From the above plot, we can see that zipcode 10304 seems to be a popular choice based on the average number of reviews of properties as that zipcode contains maximum reviews followed by zipcode 11434, 10308, 11215 and 11231. Out of the top 5 zipcodes based on this criteria, 2 are in Brooklyn, 2 are in Staten Island while 1 is in Queens.
+
+
+### d. Based on Cost of Properties
+
+
+```{r Based on average cost of properties, warning=FALSE, message=FALSE}
+
+house_data %>% group_by(zipcode, neighbourhood) %>% 
+  summarize(average_cost= round(mean(current_property_value),0)) %>% 
+  arrange(average_cost) %>% 
+  head(10) %>%
+  ggplot(aes( x = reorder(zipcode,average_cost), y =average_cost, fill= neighbourhood)) +
+  geom_bar(stat ="identity") + 
+  scale_fill_manual(values=c("#FC766AFF",  "#4B878BFF","#DAA03DFF"))+
+  geom_text(aes(label = average_cost), size = 3, hjust=0.5, vjust=-1) +
+  ggtitle("Average cost of Property in Each Zipcode")+
+  xlab("Zipcodes") + ylab("Average Cost")+
+  guides(fill=guide_legend(" "))
+
+```
+
+
+From the above plot, we can see that zipcode 10303 seems to be a popular choice based on the low average price of properties in that zipcode followed by zipcode 10306, 10314, 10304 and 11434. Out of the top 5 zipcodes based on this criteria, 4 are in Staten Island while 1 is in Queens. This indicates properties in Manhattan and Brooklyn are very costly. This may not be the best criteria to judge as low cost properties will generate less revenue per year.
+
+### e. Based on Revenue Generated
+
+```{r Based on average revenue generated from property, warning=FALSE, message=FALSE}
+
+house_data %>% group_by(zipcode, neighbourhood) %>% 
+  summarize(average_yearly_revenue= round(mean(daily_price*.75*365+ cleaning_fee*.75*365),0)) %>% arrange(-average_yearly_revenue) %>% 
+  head(10) %>%
+  ggplot(aes( x = reorder(zipcode, -average_yearly_revenue), y =average_yearly_revenue, 
+                         fill= neighbourhood)) + 
+  geom_bar(stat ="identity") + 
+  scale_fill_manual(values=c("#5B84B1FF"))+
+  geom_text(aes(label = average_yearly_revenue), size = 3, hjust=0.5, vjust=-1) +
+ ggtitle("Average Revenue Generated from Property in Each Zipcode")+
+  xlab("Zipcodes") +
+  ylab("Average Revenue")+
+  guides(fill=guide_legend(" "))
+
+```
+
+From the above plot, we can see that zipcode 10013 seems to be a popular choice based on the high average revenue generated per year from properties in that zipcode followed by zipcode 10022, 10011, 10014 and 10023. It is interesting to note that all top zipcodes generated using the above criteria fall in Manhattan. But it is not necessary that these zipcodes will generate maximum profit as the cost of properties are also high.
+
+### f. Based on Year to achieve Break Even
+
+```{r Based on year to break even year, warning=FALSE, message=FALSE}
+
+house_data %>% group_by(zipcode, neighbourhood) %>% 
+  summarize(average_yearly_revenue=mean(daily_price*.75*365+ cleaning_fee*.75*365),current_value= mean(current_property_value),year =current_value/average_yearly_revenue) %>% 
+  arrange(year) %>%
+  head(10) %>%
+  ggplot(aes( x = reorder(zipcode, year), y =year, fill= neighbourhood)) + 
+  geom_bar(stat ="identity") + 
+  scale_fill_manual(values=c("#FC766AFF",  "#4B878BFF","#DAA03DFF"))+ 
+  geom_text(aes(label = round(year,2)), size = 3, hjust=0.5, vjust=-1) +
+  ggtitle("Years Required for Break Even in Each Zipcode")+
+  xlab("Zipcodes") + ylab("Year")+
+  guides(fill=guide_legend(" "))
+```
+
+From the above plot, we can see that zipcode 10306 seems to be a popular choice based on the lowest break-even time period followed by zipcode 11234, 10303, 11434 and 10304. Out of the top 5 zipcodes based on this criteria, 3 are in Staten Island while 1 is in each Brooklyn Queens.
+
+
+### g. Based on Long Term Profit
+
+```{r Based on long term profit gain, warning=FALSE, message=FALSE}
+
+house_data %>% group_by(zipcode, neighbourhood) %>% 
+  summarize(average_yearly_revenue=mean(daily_price*.75*365+ cleaning_fee*.75*365),
+  current_value= mean(current_property_value), 
+  profit_in_10_years= 10*average_yearly_revenue-current_value,
+  profit_in_20_years= 20*average_yearly_revenue-current_value, 
+  profit_in_30_years = 30*average_yearly_revenue-current_value) %>% 
+  arrange(-profit_in_30_years) %>%
+  head(10) %>%  
+  gather(key=profit_year, value = profit, profit_in_10_years: profit_in_30_years) %>%
+  ggplot(aes(x=zipcode, y= profit, fill = neighbourhood)) + 
+  geom_bar(stat ="identity") + 
+  scale_fill_manual(values=c("#FC766AFF", "#5B84B1FF", "#DAA03DFF"))+
+  facet_wrap(~profit_year) + coord_flip() + 
+  ggtitle("Long Term Profit from Each Zipcode") + xlab("Zipcode") +ylab("Profit Made in Various Years")+
+  guides(fill=guide_legend(" "))+ 
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+  
+```
+
+
+From the above graph, we consider long term profit generated from a property. Surprisingly the trend seems to be very different from the rest of the analysis indicating that after the break-even year, profit is highly affected by revenue generated. Hence properties located in Manhattan and Brooklyn seem to be a better choice for buying property.
+
+## 6. Conclusion
+
+
+### Zipcodes
+
+Based on the combined effect of all analyses, here are my suggestions for five zipcodes from each of the three neighbourhood in New York City. :
+
+* **11215**
+This zipcode is located in the Brooklyn neighbourhood. This is one of the zipcode which stands out in almost every analysis. The maximum number of properties are listed in this zipcode. Properties in this zipcode have the 4th largest number of reviews compared to other zipcodes. It should also be noted properties in this zipcode are not that expensive(10th cheapest) and also among the top 15 to achieve break-even. Also to conclude, this zipcode is in the top 15 zipcodes based on long term profit after 30 years.
+
+* **11234**
+This zipcode is also located in the Brooklyn neighbourhood. Properties in this zipcode have the 5th largest number of reviews compared to other zipcodes. It should also be noted properties in this zipcode are also not expensive(8th cheapest). Properties in this zipcode are second to achieve break-even. Also to conclude, this zipcode is also in the top 10 zipcodes based on long term profit after 30 years.
+
+* **10036**
+This zipcode is located in the Manhattan neighbourhood. This is one of the zipcode which should be considered for long term gain purpose. The second-largest number of properties are listed in this zipcode. Properties in this zipcode lie in the top 6 to generate high yearly revenue based on other zipcodes. It should also be noted that this zipcode is also in the top 2 zipcodes based on long term profit after 30 years.
+
+* **10022**
+This zipcode is also located in the Manhattan neighbourhood. This is also one of the zipcode which should be considered for long term gain purpose as properties in this zipcode lie in top 2 to generate high yearly revenue based on other zipcodes. It should also be noted that this zipcode is also in the top zipcodes based on long term profit after 30 years.
+
+* **10306**
+This zipcode is located in the Staten Island neighbourhood. This is one of the zipcode which should be considered for short term gain purpose as well as long term gain. Cheapest Properties are listed in this zipcode. Properties in this zipcode achieve break-even fastest based on other zipcodes. It should also be noted that this zipcode is also lie in the top 10 zipcodes based on long term profit after 30 years.
+
+
+### Future Plans
+
+**Business Decisions**
+One of the business challenges will be to decide whether we want to make money from a property only via renting or selling the property eventually after some years. If yes, what time period are we looking at? This is an important decision that can help us to choose the zipcode where the investors can buy property now.
+
+
+**Incorporating data from additional sources**
+Next steps in this analysis would be to make a better judgement with the help of additional data about:
+
+* Weather and seasonality is an important factors for travelers to choose to place in a city during brutal climates. Hence these data will help us to make a better decision.
+* Security is one of the significant elements for travelers and they, for the most part, lean toward wrongdoing free neighborhoods for leasing properties. By consolidating the crime data, we can have better judgment.
+* If a zipcode is intensely clogged with traffic or in the event that it doesn't have good connectivity via public transport nearby, at that point, there are high possibilities that tourists will stay away from such zipcodes. So examination of this information should be performed.
